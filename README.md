@@ -284,3 +284,11 @@ For issues and questions:
 2. Review the configuration settings
 3. Test individual components using the test script
 4. Consult the API documentation at `/docs`
+
+
+<div align="center">
+  <strong>Made with ❤️ by Sarvagna</strong>
+</div> 
+
+
+
