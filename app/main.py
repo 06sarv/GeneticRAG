@@ -1,5 +1,8 @@
 """
 Main FastAPI application for the genetic counseling RAG system.
+
+This module provides a REST API for querying genetic counseling information
+using a retrieval-augmented generation (RAG) approach with vector search.
 """
 
 import os
@@ -21,7 +24,6 @@ from .data_processor import DataProcessor
 # Load environment variables
 load_dotenv()
 
-# Configure logging
 def setup_logging(config: AppConfig):
     """Setup logging configuration."""
     log_level = getattr(logging, config.server.log_level.upper(), logging.INFO)
@@ -155,10 +157,10 @@ def get_llm_instance():
 
 # Utility functions
 def is_variant_query(query: str) -> bool:
-    """Check if the query is about a specific genetic variant."""
+    """check if the query is about a specific genetic variant"""
     query_lower = query.lower()
     
-    # HGVS notation patterns
+    # hgvs notation patterns
     hgvs_patterns = [
         r'[cpg]\.\d+[+-]?\d*[ATCG]>[ATCG]',  # c.123A>G, p.456L>P, g.789C>T
         r'[cpg]\.\d+[+-]?\d*[ATCG]',  # c.123A, p.456L, g.789C
@@ -171,7 +173,7 @@ def is_variant_query(query: str) -> bool:
         if re.search(pattern, query_lower):
             return True
     
-    # Gene symbol patterns
+    # gene symbol patterns
     gene_pattern = r'\b[A-Z]{2,6}[0-9]*\b'
     genes = re.findall(gene_pattern, query)
     common_words = {'AND', 'THE', 'FOR', 'ARE', 'CAN', 'MAY', 'NOT', 'ALL', 'ANY', 'DNA', 'RNA', 'PCR', 'CVS', 'PGT', 'WES', 'WGS'}
@@ -180,7 +182,7 @@ def is_variant_query(query: str) -> bool:
     if genes:
         return True
     
-    # Variant-related keywords
+    # variant-related keywords
     variant_keywords = [
         'variant', 'mutation', 'pathogenic', 'benign', 'vus', 'variant of uncertain significance',
         'missense', 'nonsense', 'frameshift', 'splice', 'deletion', 'duplication',
@@ -193,8 +195,8 @@ def is_variant_query(query: str) -> bool:
     return False
 
 def variant_query_handler(query: str) -> str:
-    """Handle variant-specific queries."""
-    # This is a placeholder for Surya's variant analysis pipeline
+    """handle variant-specific queries"""
+    # this is a placeholder for variant analysis pipeline
     return f"""I understand you're asking about a genetic variant. This query has been identified as variant-specific and would be processed by our specialized variant analysis pipeline.
 
 Query: "{query}"
@@ -507,9 +509,9 @@ async def startup_event():
         
         # Initialize vectorstore with CSV files
         csv_files = {
-            'gccg': 'GCCG.csv',
-            'questions': 'Genetic_bot_qb_with_genes_rerun_v3.csv',
-            'training_questions': 'genetic_counsellor_training_questions_with_official_sources.csv'
+            'gccg': 'data/raw/GCCG.csv',
+            'questions': 'data/raw/Genetic_bot_qb_with_genes_rerun_v3.csv',
+            'training_questions': 'data/raw/genetic_counsellor_training_questions_with_official_sources.csv'
         }
         
         # Check if CSV files exist

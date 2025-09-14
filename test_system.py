@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Test script for the Genetic Counseling RAG System.
+Test script for the GeneticRAG system.
+
 This script tests the system components and provides example queries.
 """
 
@@ -14,7 +15,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 def test_data_processing():
-    """Test the data processing system."""
+    """test the data processing system"""
     print("Testing data processing...")
     
     try:
@@ -22,51 +23,51 @@ def test_data_processing():
         
         processor = DataProcessor()
         
-        # Test CSV files
+        # test csv files
         csv_files = {
-            'gccg': 'GCCG.csv',
-            'questions': 'Genetic_bot_qb_with_genes_rerun_v3.csv',
-            'training_questions': 'genetic_counsellor_training_questions_with_official_sources.csv'
+            'gccg': 'data/raw/GCCG.csv',
+            'questions': 'data/raw/Genetic_bot_qb_with_genes_rerun_v3.csv',
+            'training_questions': 'data/raw/genetic_counsellor_training_questions_with_official_sources.csv'
         }
         
-        # Check if files exist
+        # check if files exist
         existing_files = {}
         for key, file_path in csv_files.items():
             if os.path.exists(file_path):
                 existing_files[key] = file_path
-                print(f"✓ Found {key}: {file_path}")
+                print(f"Found {key}: {file_path}")
             else:
-                print(f"✗ Missing {key}: {file_path}")
+                print(f"Missing {key}: {file_path}")
         
         if existing_files:
-            # Process files
+            # process files
             chunks = processor.process_all_csv_files(existing_files)
-            print(f"✓ Processed {len(chunks)} chunks from CSV files")
+            print(f"Processed {len(chunks)} chunks from CSV files")
             
-            # Show sample chunks
+            # show sample chunks
             if chunks:
                 print("\nSample chunks:")
                 for i, chunk in enumerate(chunks[:3]):
                     print(f"  {i+1}. {chunk['text'][:100]}...")
                     print(f"     Source: {chunk['source']}, Category: {chunk['category']}")
         else:
-            print("✗ No CSV files found for processing")
+            print("No CSV files found for processing")
             
     except Exception as e:
-        print(f"✗ Error testing data processing: {e}")
+        print(f"Error testing data processing: {e}")
 
 def test_vectorstore():
-    """Test the vectorstore system."""
+    """test the vectorstore system"""
     print("\nTesting vectorstore...")
     
     try:
         from app.enhanced_vectorstore import EnhancedVectorStore
         
-        # Initialize vectorstore
+        # initialize vectorstore
         vectorstore = EnhancedVectorStore()
-        print("✓ Vectorstore initialized")
+        print("Vectorstore initialized")
         
-        # Test adding sample data
+        # test adding sample data
         sample_chunks = [
             {
                 'text': 'What is gene therapy? Gene therapy is a medical technique that uses genes to treat or prevent disease.',
@@ -84,46 +85,46 @@ def test_vectorstore():
         
         success = vectorstore.add_chunks(sample_chunks)
         if success:
-            print("✓ Sample data added to vectorstore")
+            print("Sample data added to vectorstore")
         else:
-            print("✗ Failed to add sample data")
+            print("Failed to add sample data")
         
-        # Test retrieval
+        # test retrieval
         results = vectorstore.retrieve_similar_chunks("What is gene therapy?", n_results=2)
         if results:
-            print(f"✓ Retrieved {len(results)} similar chunks")
+            print(f"Retrieved {len(results)} similar chunks")
             for i, result in enumerate(results):
                 print(f"  {i+1}. {result['text'][:50]}... (similarity: {result.get('similarity_score', 'N/A')})")
         else:
-            print("✗ No results retrieved")
+            print("No results retrieved")
         
-        # Test stats
+        # test stats
         stats = vectorstore.get_collection_stats()
-        print(f"✓ Collection stats: {stats.get('total_documents', 0)} documents")
+        print(f"Collection stats: {stats.get('total_documents', 0)} documents")
         
     except Exception as e:
-        print(f"✗ Error testing vectorstore: {e}")
+        print(f"Error testing vectorstore: {e}")
 
 def test_rag_system():
-    """Test the complete RAG system."""
+    """test the complete rag system"""
     print("\nTesting RAG system...")
     
     try:
         from app.enhanced_vectorstore import get_vectorstore
         from app.data_processor import DataProcessor
         
-        # Initialize vectorstore
+        # initialize vectorstore
         vectorstore = get_vectorstore()
         
-        # Process and add CSV data
+        # process and add csv data
         processor = DataProcessor()
         csv_files = {
-            'gccg': 'GCCG.csv',
-            'questions': 'Genetic_bot_qb_with_genes_rerun_v3.csv',
-            'training_questions': 'genetic_counsellor_training_questions_with_official_sources.csv'
+            'gccg': 'data/raw/GCCG.csv',
+            'questions': 'data/raw/Genetic_bot_qb_with_genes_rerun_v3.csv',
+            'training_questions': 'data/raw/genetic_counsellor_training_questions_with_official_sources.csv'
         }
         
-        # Check existing files
+        # check existing files
         existing_files = {k: v for k, v in csv_files.items() if os.path.exists(v)}
         
         if existing_files:
@@ -131,18 +132,18 @@ def test_rag_system():
             if chunks:
                 success = vectorstore.add_chunks(chunks)
                 if success:
-                    print(f"✓ Added {len(chunks)} chunks to vectorstore")
+                    print(f"Added {len(chunks)} chunks to vectorstore")
                 else:
-                    print("✗ Failed to add chunks to vectorstore")
+                    print("Failed to add chunks to vectorstore")
                     return
             else:
-                print("✗ No chunks processed from CSV files")
+                print("No chunks processed from CSV files")
                 return
         else:
-            print("✗ No CSV files found")
+            print("No CSV files found")
             return
         
-        # Test queries
+        # test queries
         test_queries = [
             "What is gene therapy?",
             "What does pathogenic variant mean?",
@@ -164,36 +165,36 @@ def test_rag_system():
                 print("  No results found")
         
     except Exception as e:
-        print(f"✗ Error testing RAG system: {e}")
+        print(f"Error testing RAG system: {e}")
 
 def test_api_endpoints():
-    """Test the API endpoints (requires server to be running)."""
+    """test the api endpoints (requires server to be running)"""
     print("\nTesting API endpoints...")
     
     try:
         import requests
         import time
         
-        # Wait a moment for server to start
+        # wait a moment for server to start
         time.sleep(2)
         
         base_url = "http://localhost:8000"
         
-        # Test health endpoint
+        # test health endpoint
         try:
             response = requests.get(f"{base_url}/health", timeout=5)
             if response.status_code == 200:
-                print("✓ Health endpoint working")
+                print("Health endpoint working")
                 health_data = response.json()
                 print(f"  Status: {health_data.get('status')}")
                 print(f"  Documents: {health_data.get('vectorstore', {}).get('documents', 0)}")
             else:
-                print(f"✗ Health endpoint returned status {response.status_code}")
+                print(f"Health endpoint returned status {response.status_code}")
         except requests.exceptions.ConnectionError:
-            print("✗ Cannot connect to server. Make sure it's running on localhost:8000")
+            print("Cannot connect to server. Make sure it's running on localhost:8000")
             return
         
-        # Test chat endpoint
+        # test chat endpoint
         try:
             chat_data = {
                 "message": "What is gene therapy?",
@@ -201,38 +202,38 @@ def test_api_endpoints():
             }
             response = requests.post(f"{base_url}/chat", json=chat_data, timeout=10)
             if response.status_code == 200:
-                print("✓ Chat endpoint working")
+                print("Chat endpoint working")
                 chat_response = response.json()
                 print(f"  Reply: {chat_response.get('reply', '')[:100]}...")
                 print(f"  Sources: {chat_response.get('sources', [])}")
             else:
-                print(f"✗ Chat endpoint returned status {response.status_code}")
+                print(f"Chat endpoint returned status {response.status_code}")
         except Exception as e:
-            print(f"✗ Error testing chat endpoint: {e}")
+            print(f"Error testing chat endpoint: {e}")
         
-        # Test knowledge stats
+        # test knowledge stats
         try:
             response = requests.get(f"{base_url}/knowledge/stats", timeout=5)
             if response.status_code == 200:
-                print("✓ Knowledge stats endpoint working")
+                print("Knowledge stats endpoint working")
                 stats = response.json()
                 print(f"  Total documents: {stats.get('total_documents', 0)}")
             else:
-                print(f"✗ Knowledge stats endpoint returned status {response.status_code}")
+                print(f"Knowledge stats endpoint returned status {response.status_code}")
         except Exception as e:
-            print(f"✗ Error testing knowledge stats: {e}")
+            print(f"Error testing knowledge stats: {e}")
             
     except ImportError:
-        print("✗ Requests library not available. Install with: pip install requests")
+        print("Requests library not available. Install with: pip install requests")
     except Exception as e:
-        print(f"✗ Error testing API endpoints: {e}")
+        print(f"Error testing API endpoints: {e}")
 
 def main():
-    """Main test function."""
-    print("Genetic Counseling RAG System - Test Suite")
+    """main test function"""
+    print("GeneticRAG System - Test Suite")
     print("=" * 50)
     
-    # Test individual components
+    # test individual components
     test_data_processing()
     test_vectorstore()
     test_rag_system()
@@ -243,7 +244,7 @@ def main():
     print("1. Start server: python run_server.py")
     print("2. Test API: python test_system.py --api")
     
-    # Check if API testing is requested
+    # check if api testing is requested
     if "--api" in sys.argv:
         test_api_endpoints()
 

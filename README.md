@@ -1,17 +1,17 @@
-# Genetic Counseling RAG System
+# GeneticRAG
 
 A modular Retrieval-Augmented Generation (RAG) system for answering genetic counseling questions using local processing and vector search.
 
 ## Features
 
-- **Modular Architecture**: Easy to integrate with other modules and extend with new data sources
-- **Local Processing**: Runs entirely locally without external API dependencies
-- **Multiple Data Sources**: Supports CSV, text, Markdown, JSON, and YAML files
-- **Advanced Vector Search**: Uses ChromaDB with sentence transformers for semantic search
-- **Flexible LLM Integration**: Supports vLLM and transformers with fallback options
-- **Comprehensive Configuration**: YAML-based configuration with environment variable overrides
-- **RESTful API**: FastAPI-based API with comprehensive endpoints
-- **Document Ingestion**: Easy addition of new documents and data sources
+- Modular architecture for easy integration with other modules
+- Local processing without external API dependencies
+- Support for multiple data sources (CSV, text, Markdown, JSON, YAML)
+- Advanced vector search using ChromaDB with sentence transformers
+- Flexible LLM integration with vLLM and transformers support
+- Comprehensive configuration with YAML and environment variables
+- RESTful API built with FastAPI
+- Document ingestion system for easy data source addition
 
 ## Project Structure
 
@@ -19,52 +19,54 @@ A modular Retrieval-Augmented Generation (RAG) system for answering genetic coun
 genetic_chatbot_backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # FastAPI application
-│   ├── config.py              # Configuration management
-│   ├── data_processor.py      # CSV and data processing
-│   ├── enhanced_vectorstore.py # Vector database operations
-│   ├── document_ingestion.py  # Document ingestion system
-│   └── vectorstore.py         # Legacy vectorstore (deprecated)
-├── data/                      # Data directory
-├── scripts/                   # Utility scripts
-├── tests/                     # Test files
-├── requirements.txt           # Python dependencies
-├── run_server.py             # Server startup script
-├── test_system.py            # System testing script
-├── config.yaml               # Configuration file (auto-generated)
-└── README.md                 # This file
+│   ├── main.py                 # fastapi application
+│   ├── config.py              # configuration management
+│   ├── data_processor.py      # csv and data processing
+│   ├── enhanced_vectorstore.py # vector database operations
+│   ├── document_ingestion.py  # document ingestion system
+│   └── vectorstore.py         # legacy vectorstore (deprecated)
+├── data/                      # data directory
+│   └── raw/                   # raw csv files
+├── scripts/                   # utility scripts
+├── tests/                     # test files
+├── requirements.txt           # python dependencies
+├── run_server.py             # server startup script
+├── test_system.py            # system testing script
+├── start.sh                  # quick start script
+└── README.md                 # this file
 ```
 
 ## Installation
 
-1. **Clone or navigate to the project directory**:
+1. Clone or navigate to the project directory:
    ```bash
-   cd /Users/sarvagna/Documents/genetic_chatbot_backend
+   cd /path/to/genetic_chatbot_backend
    ```
 
-2. **Activate the virtual environment**:
+2. Create and activate virtual environment:
    ```bash
-   source venv/bin/activate
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install dependencies**:
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Quick Start
 
-1. **Start the server**:
+1. Start the server:
    ```bash
    python run_server.py
    ```
 
-2. **Test the system**:
+2. Test the system:
    ```bash
    python test_system.py
    ```
 
-3. **Access the API**:
+3. Access the API:
    - API Documentation: http://localhost:8000/docs
    - Health Check: http://localhost:8000/health
    - Chat Endpoint: http://localhost:8000/chat

@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# Genetic Counseling RAG System Startup Script
+# GeneticRAG System Startup Script
 
-echo "Starting Genetic Counseling RAG System..."
+echo "Starting GeneticRAG system..."
 
-# Check if virtual environment exists
+# check if virtual environment exists
 if [ ! -d "venv" ]; then
     echo "Virtual environment not found. Please run setup first."
     exit 1
 fi
 
-# Activate virtual environment
+# activate virtual environment
 source venv/bin/activate
 
-# Check if required files exist
-if [ ! -f "GCCG.csv" ] || [ ! -f "Genetic_bot_qb_with_genes_rerun_v3.csv" ] || [ ! -f "genetic_counsellor_training_questions_with_official_sources.csv" ]; then
+# check if required files exist
+if [ ! -f "data/raw/GCCG.csv" ] || [ ! -f "data/raw/Genetic_bot_qb_with_genes_rerun_v3.csv" ] || [ ! -f "data/raw/genetic_counsellor_training_questions_with_official_sources.csv" ]; then
     echo "Warning: Some CSV files are missing. The system will work with available files."
 fi
 
-# Start the server
+# start the server
 echo "Starting server on http://localhost:8000"
 echo "API Documentation: http://localhost:8000/docs"
 echo "Press Ctrl+C to stop the server"
