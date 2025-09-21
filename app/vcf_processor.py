@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 class VCFProcessor:
     """Processes VCF files for genetic variant analysis with privacy protection."""
     
+    INDIA_ALLELE_FINDER_DIR = Path(__file__).parent / "india_allele_finder_tool"
+    INDIA_ALLELE_ANNOTATOR_SCRIPT = INDIA_ALLELE_FINDER_DIR / "indiaAlleleAnnotator.py"
+    IAF_FREQ_FILE = INDIA_ALLELE_FINDER_DIR / "iafFreq.txt"
+
     def __init__(self, data_dir: str = "data/vcf", temp_dir: str = "data/temp"):
         """
         Initialize the VCF processor.
@@ -71,18 +75,31 @@ class VCFProcessor:
         hash_obj = hashlib.sha256(patient_id.encode())
         return f"anon_{hash_obj.hexdigest()[:8]}"
         
-    def parse_vcf(self, vcf_file_path: str) -> List[Dict[str, Any]]:
+    def parse_vcf(self, vcf_file_path: str, output_dir: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Parse VCF file and extract variant information using pysam.
-        
+
         Args:
             vcf_file_path: Path to the VCF file
+            output_dir: Optional directory to save the annotated VCF file. If None, annotation will not be performed.
             
         Returns:
             List of variant dictionaries
         """
         variants = []
-        
+
+        # If output_dir is provided, annotate the VCF file first
+        if output_dir:
+            annotated_vcf_path = Path(output_dir) / f"annotated_{Path(vcf_file_path).name}"
+            try:
+                vcf_file_path = self.annotate_with_india_allele_finder(vcf_file_path, str(annotated_vcf_path))
+                logger.info(f"VCF file successfully annotated and saved to {vcf_file_path}")
+            except Exception as e:
+                logger.error(f"Failed to annotate VCF file with India Allele Finder: {e}")
+                # Continue with original VCF if annotation fails, or raise error
+                # For now, we'll re-raise to ensure annotation is critical
+                raise
+
         try:
             # Use pysam to parse the VCF file
             if 'pysam' in globals():
@@ -351,3 +368,278 @@ class VCFProcessor:
             'affected_genes_count': len(affected_genes),
             'affected_genes': list(affected_genes)
         }
+
+    def query_gnomad(self, variant: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Simulate querying gnomAD for variant frequency and information.
+        In a real-world scenario, this would involve API calls to gnomAD or querying a local gnomAD database.
+
+        Args:
+            variant: A dictionary containing variant information (e.g., chrom, pos, ref, alt).
+
+        Returns:
+            A dictionary with gnomAD information if found, otherwise None.
+        """
+        # This is a placeholder. In a real implementation, you would make an API call.
+        # Example gnomAD API endpoint (hypothetical):
+        # gnomad_api_url = f"https://gnomad.broadinstitute.org/api?variant={variant['chrom']}-{variant['pos']}-{variant['ref']}-{variant['alt']}"
+        # response = self.session.get(gnomad_api_url)
+        # if response.status_code == 200:
+        #     return response.json()
+        # else:
+        #     return None
+
+        # For demonstration, we'll simulate some common/rare variants
+        # A real implementation would parse the gnomAD response for allele frequencies
+        variant_key = f"{variant['chrom']}-{variant['pos']}-{variant['ref']}-{variant['alt']}"
+
+        # Simulate some common variants
+        if variant_key == "1-100000-A-G":
+            return {"allele_frequency": 0.35, "filter": "PASS", "rs_id": "rs12345"}
+        elif variant_key == "X-150000-C-T":
+            return {"allele_frequency": 0.12, "filter": "PASS", "rs_id": "rs67890"}
+        # Simulate a rare variant
+        elif variant_key == "17-41200000-G-A": # Near BRCA1
+            return {"allele_frequency": 0.00005, "filter": "PASS", "rs_id": "rs98765"}
+        # Simulate a novel variant (not found in gnomAD)
+        else:
+            return None
+
+    def get_variants_from_vcf(self, vcf_path: str) -> List[Dict[str, Any]]:
+        """
+        Parses a VCF file and extracts variant information.
+
+        Args:
+            vcf_path (str): The path to the VCF file.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, where each dictionary
+                                   represents a variant with its details.
+        """
+        variants = []
+        try:
+            with pysam.VariantFile(vcf_path, "r") as vcf_file:
+                for record in vcf_file:
+                    # Extract basic variant information
+                    variant_info = {
+                        "CHROM": record.chrom,
+                        "POS": record.pos,
+                        "ID": record.id if record.id else ".",
+                        "REF": record.ref,
+                        "ALT": [str(alt) for alt in record.alts if alt is not None],
+                        "QUAL": record.qual if record.qual is not None else ".",
+                        "FILTER": str(list(record.filter)) if record.filter else "PASS",
+                        "INFO": {key: record.info[key] for key in record.info}
+                    }
+                    variants.append(variant_info)
+        except Exception as e:
+            self.logger.error(f"Error reading VCF file {vcf_path}: {e}")
+            raise
+        return variants
+
+    def interpret_variant_acmg(self, variant: Dict, functional_predictions: Dict, gnomad_allele_frequency: float) -> Dict:
+        """
+        Interprets a variant based on a simplified ACMG guideline approach.
+        This is a simplified model and does not encompass the full complexity of ACMG guidelines.
+
+        Args:
+            variant (Dict): The variant information.
+            functional_predictions (Dict): Dictionary of functional prediction scores (SIFT, PolyPhen, CADD, REVEL).
+            gnomad_allele_frequency (float): Allele frequency from gnomAD.
+
+        Returns:
+            Dict: A dictionary containing the ACMG classification and supporting evidence.
+        """
+        classification = "Uncertain significance"
+        evidence = []
+
+        # Apply simplified ACMG-like rules
+
+        # Population Data (PM2 - Absent in control population / BA1 - Benign allele frequency)
+        if gnomad_allele_frequency < 0.001:  # Very rare in gnomAD
+            evidence.append("PM2: Absent/very rare in gnomAD population (AF < 0.001)")
+            if gnomad_allele_frequency == 0: # Not observed
+                classification = "Likely pathogenic"
+        elif gnomad_allele_frequency > 0.05: # Common in gnomAD
+            evidence.append("BA1: Common in gnomAD population (AF > 0.05)")
+            classification = "Benign"
+
+        # Functional Data (PS3 - Deleterious in functional studies / BP4 - Benign in functional studies)
+        sift_score = functional_predictions.get("sift_score", 0.5)
+        polyphen_score = functional_predictions.get("polyphen_score", 0.5)
+        cadd_score = functional_predictions.get("cadd_score", 10.0)
+        revel_score = functional_predictions.get("revel_score", 0.5)
+
+        if sift_score < 0.05 and polyphen_score > 0.9 and cadd_score > 20 and revel_score > 0.7: # Multiple damaging predictions
+            evidence.append("PS3: Multiple in-silico tools predict deleterious effect")
+            if classification == "Uncertain significance":
+                classification = "Likely pathogenic"
+            elif classification == "Likely benign":
+                classification = "Uncertain significance"
+        elif sift_score > 0.8 and polyphen_score < 0.1 and cadd_score < 5 and revel_score < 0.3: # Multiple benign predictions
+            evidence.append("BP4: Multiple in-silico tools predict benign effect")
+            if classification == "Uncertain significance":
+                classification = "Likely benign"
+            elif classification == "Likely pathogenic":
+                classification = "Uncertain significance"
+
+        # Example for a strong pathogenic criterion (PVS1 - Null variant in a gene where LOF is a known mechanism of disease)
+        # This would require gene-specific knowledge, which is beyond the scope of this simulation.
+        # For demonstration, let's assume a specific variant is known to be PVS1
+        variant_key = f"{variant.get('CHROM')}-{variant.get('POS')}-{variant.get('REF')}-{variant.get('ALT')}"
+        if "chr1-1000-A-G" in variant_key: # Example of a variant that might be PVS1
+            evidence.append("PVS1: Null variant (simulated) in a gene where LOF is a known mechanism of disease")
+            classification = "Pathogenic"
+
+        return {
+            "acmg_classification": classification,
+            "supporting_evidence": evidence
+        }
+
+    def perform_network_pharmacology_analysis(self, variant: dict) -> dict:
+        """
+        Simulates network pharmacology analysis for a given variant.
+        This method identifies genes associated with the variant and then
+        simulates interactions with drugs or pathways.
+
+        Args:
+            variant (dict): A dictionary containing variant information.
+
+        Returns:
+            dict: A dictionary containing simulated network pharmacology analysis results.
+        """
+        variant_key = f"{variant['CHROM']}:{variant['POS']}:{variant['REF']}:{variant['ALT']}"
+        
+        # Simulate gene association based on variant key
+        simulated_gene_associations = {
+            "chr1:100:A:G": ["GENE_A", "GENE_B"],
+            "chr2:200:C:T": ["GENE_C"],
+            "chr3:300:G:A": ["GENE_D", "GENE_E", "GENE_F"],
+        }
+        
+        associated_genes = simulated_gene_associations.get(variant_key, [f"UNKNOWN_GENE_{variant_key.split(':')[0]}"])
+
+        # Simulate drug and pathway interactions for associated genes
+        simulated_interactions = {}
+        for gene in associated_genes:
+            simulated_interactions[gene] = {
+                "drugs": [f"DRUG_{gene}_1", f"DRUG_{gene}_2"],
+                "pathways": [f"PATHWAY_{gene}_X", f"PATHWAY_{gene}_Y"]
+            }
+        
+        return {
+            "variant_key": variant_key,
+            "associated_genes": associated_genes,
+            "simulated_interactions": simulated_interactions
+        }
+
+    def predict_functional_impact(self, variant: Dict) -> Dict:
+        """
+        Simulates querying functional prediction tools (SIFT, PolyPhen, CADD, REVEL)
+        for a given variant and returns their scores.
+
+        Args:
+            variant (Dict): A dictionary representing the variant, typically
+                            containing 'CHROM', 'POS', 'REF', 'ALT' keys.
+
+        Returns:
+            Dict: A dictionary containing simulated functional prediction scores.
+        """
+        # In a real-world scenario, this would involve API calls to external databases
+        # or running local prediction tools. For this simulation, we return dummy scores.
+        variant_key = f"{variant.get('CHROM')}-{variant.get('POS')}-{variant.get('REF')}-{variant.get('ALT')}"
+
+        # Simulate scores based on some arbitrary logic or pre-defined values
+        # For demonstration, let's make some variants appear "damaging" and others "benign"
+        if "chr1-1000-A-G" in variant_key: # Example of a "damaging" variant
+            sift_score = 0.01 # Lower score indicates damaging
+            polyphen_score = 0.95 # Higher score indicates probably damaging
+            cadd_score = 25.0 # Higher score indicates more deleterious
+            revel_score = 0.90 # Higher score indicates more deleterious
+        elif "chr2-2000-C-T" in variant_key: # Example of a "benign" variant
+            sift_score = 0.85
+            polyphen_score = 0.05
+            cadd_score = 1.5
+            revel_score = 0.10
+        else: # Default scores for other variants
+            sift_score = 0.5
+            polyphen_score = 0.5
+            cadd_score = 10.0
+            revel_score = 0.5
+
+        return {
+            "sift_score": sift_score,
+            "polyphen_score": polyphen_score,
+            "cadd_score": cadd_score,
+            "revel_score": revel_score,
+        }
+
+    def identify_novel_recurrent_variants(self, vcf_path: str) -> Dict:
+        """
+        Identifies novel and recurrent variants in a VCF file by comparing them
+        against a simulated gnomAD population database.
+        """
+        novel_variants = []
+        recurrent_variants = []
+
+        for variant in variants:
+            gnomad_info = self.query_gnomad(variant)
+
+            if gnomad_info is None:
+                # Variant not found in gnomAD, consider it novel
+                novel_variants.append(variant)
+            else:
+                # Variant found in gnomAD, check allele frequency
+                # Define a threshold for 'recurrent' (e.g., AF > 0.01)
+                if gnomad_info.get("allele_frequency", 0) > 0.01:
+                    recurrent_variants.append({
+                        **variant,
+                        "gnomad_af": gnomad_info["allele_frequency"],
+                        "gnomad_rs_id": gnomad_info.get("rs_id")
+                    })
+                else:
+                    # If found but rare, still consider it for further analysis, but not 'recurrent' by this definition
+                    pass # Or add to another category like 'known_rare_variants'
+
+        return {
+            "novel_variants": novel_variants,
+            "recurrent_variants": recurrent_variants
+        }
+
+    def annotate_with_india_allele_finder(self, vcf_file_path: str, output_vcf_path: str) -> str:
+        """
+        Annotate VCF file with India Allele Finder frequencies.
+
+        Args:
+            vcf_file_path: Path to the input VCF file.
+            output_vcf_path: Path to save the annotated VCF file.
+
+        Returns:
+            Path to the annotated VCF file.
+        """
+        if not self.INDIA_ALLELE_ANNOTATOR_SCRIPT.exists():
+            raise FileNotFoundError(f"India Allele Annotator script not found at {self.INDIA_ALLELE_ANNOTATOR_SCRIPT}")
+        if not self.IAF_FREQ_FILE.exists():
+            raise FileNotFoundError(f"India Allele Frequencies file not found at {self.IAF_FREQ_FILE}")
+
+        command = [
+            "python3",
+            str(self.INDIA_ALLELE_ANNOTATOR_SCRIPT),
+            "-i", str(vcf_file_path),
+            "-o", str(output_vcf_path),
+            "-f", str(self.IAF_FREQ_FILE)
+        ]
+
+        try:
+            logger.info(f"Running India Allele Finder annotation: {' '.join(command)}")
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            logger.info(f"India Allele Finder stdout: {result.stdout}")
+            if result.stderr:
+                logger.warning(f"India Allele Finder stderr: {result.stderr}")
+            return output_vcf_path
+        except subprocess.CalledProcessError as e:
+            logger.error(f"India Allele Finder annotation failed: {e.stderr}")
+            raise RuntimeError(f"India Allele Finder annotation failed: {e.stderr}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during India Allele Finder annotation: {e}")
+            raise RuntimeError(f"An unexpected error occurred during India Allele Finder annotation: {e}")

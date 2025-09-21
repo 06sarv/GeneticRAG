@@ -8,8 +8,8 @@ using a retrieval-augmented generation (RAG) approach with vector search.
 import os
 import logging
 import re
-from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Depends
+from typing import List, Dict, Any, Optional, Literal
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -123,6 +123,13 @@ def get_ingestion_manager_instance():
         _ingestion_manager = get_ingestion_manager()
     return _ingestion_manager
 
+def get_vcf_processor_instance():
+    global _vcf_processor
+    if _vcf_processor is None:
+        _vcf_processor = VCFProcessor()
+        logger.info("Initialized VCF processor")
+    return _vcf_processor
+
 def get_llm_instance():
     """Get or initialize the LLM instance."""
     global _llm
@@ -130,22 +137,20 @@ def get_llm_instance():
         try:
             if config.llm.use_vllm:
                 from vllm import LLM
+
                 _llm = LLM(
                     model=config.llm.model_name,
-                    max_model_len=config.llm.max_tokens,
-                    temperature=config.llm.temperature,
-                    top_p=config.llm.top_p
+                    trust_remote_code=True,
+                    max_model_len=config.llm.max_model_len,
                 )
                 logger.info(f"Initialized vLLM with model: {config.llm.model_name}")
             else:
-                # Fallback to transformers
                 from transformers import pipeline
+
                 _llm = pipeline(
                     "text-generation",
                     model=config.llm.model_name,
-                    max_length=config.llm.max_tokens,
-                    temperature=config.llm.temperature,
-                    do_sample=True
+                    trust_remote_code=True,
                 )
                 logger.info(f"Initialized transformers pipeline with model: {config.llm.model_name}")
         except Exception as e:
@@ -153,25 +158,13 @@ def get_llm_instance():
             if config.llm.fallback_to_simple:
                 _llm = None
                 logger.warning("LLM initialization failed, using simple fallback")
-            else:
-                raise e
+            # No else here, _llm is already None or will be returned
     return _llm
-            
-def get_vcf_processor_instance():
-    """Get or initialize the VCF processor instance."""
-    global _vcf_processor
-    if _vcf_processor is None:
-        _vcf_processor = VCFProcessor()
-        logger.info("Initialized VCF processor")
-    return _vcf_processor
-                if config.llm.fallback_to_simple:
-                _llm = None
-                logger.warning("LLM initialization failed, using simple fallback")
-            else:
-                raise e  return _llm
+
 
 # Utility functions
 def is_variant_query(query: str) -> bool:
+
     """check if the query is about a specific genetic variant"""
     query_lower = query.lower()
     
@@ -467,7 +460,9 @@ class VCFProcessRequest(BaseModel):
     """Request model for VCF processing."""
     file_path: str = Field(..., description="Path to the VCF file to process")
     patient_id: Optional[str] = Field(None, description="Patient ID (will be anonymized)")
-    analysis_type: str = Field("all", description="Type of analysis to perform (variant, dbsnp, prs, pathway, all)")
+    analysis_type: Literal["variant", "dbsnp", "prs", "pathway", "novel_recurrent", "functional_prediction", "acmg_interpretation", "network_pharmacology", "all"] = "all"
+    output_dir: Optional[str] = None
+
 
 class VCFProcessResponse(BaseModel):
     """Response model for VCF processing."""
@@ -488,7 +483,7 @@ async def process_vcf(request: VCFProcessRequest):
         results = {}
         
         if request.analysis_type in ["variant", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path)
+            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir)
             variant_types = vcf_processor.determine_variant_types(variants)
             results["variants"] = {
                 "count": len(variants),
@@ -496,25 +491,66 @@ async def process_vcf(request: VCFProcessRequest):
             }
             
         if request.analysis_type in ["dbsnp", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             dbsnp_results = vcf_processor.query_dbsnp(variants)
             results["dbsnp"] = dbsnp_results
             
         if request.analysis_type in ["prs", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             prs_score = vcf_processor.calculate_prs(variants)
             results["prs"] = prs_score
             
         if request.analysis_type in ["pathway", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             pathway_analysis = vcf_processor.analyze_pathways(variants)
             results["pathways"] = pathway_analysis
             
-        return VCFProcessResponse(
-            success=True,
-            anonymized_id=anonymized_id,
-            results=results
-        )
+        if request.analysis_type in ["novel_recurrent", "all"]:
+            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
+            novel_recurrent_variants = vcf_processor.identify_novel_recurrent_variants(variants)
+            results["novel_recurrent_variants"] = novel_recurrent_results
+            
+        if analysis_type == "functional_prediction" or analysis_type == "all":
+            if not vcf_path:
+                vcf_path = await vcf_processor.parse_vcf(vcf_content, output_dir=request.output_dir)
+            # Assuming we want to predict functional impact for all variants in the VCF
+            # For a real application, you might want to filter variants first
+            variants_to_predict = vcf_processor.get_variants_from_vcf(vcf_path) # You'll need to implement this method in VCFProcessor
+            functional_prediction_results = []
+            for variant in variants_to_predict:
+                prediction = vcf_processor.predict_functional_impact(variant)
+                functional_prediction_results.append({"variant": variant, "prediction": prediction})
+            results["functional_prediction"] = functional_prediction_results
+
+        # Perform network pharmacology analysis
+        if analysis_type == "network_pharmacology" or analysis_type == "all":
+            if not variants:
+                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
+            
+            network_pharmacology_results = []
+            for variant in variants:
+                network_pharmacology_results.append(vcf_processor.perform_network_pharmacology_analysis(variant))
+            response.network_pharmacology_results = network_pharmacology_results
+
+        # Perform ACMG interpretation
+        if analysis_type == "acmg_interpretation" or analysis_type == "all":
+            if not variants:
+                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
+            
+            acmg_results = []
+            for variant in variants:
+                # For ACMG, we need functional predictions and gnomAD allele frequencies
+                functional_predictions = vcf_processor.predict_functional_impact(variant)
+                gnomad_allele_frequency = vcf_processor.query_gnomad(variant)
+                acmg_results.append(vcf_processor.interpret_variant_acmg(variant, functional_predictions, gnomad_allele_frequency))
+            response.acmg_interpretation_results = acmg_results
+
+        if not results:
+            return VCFProcessResponse(
+                success=True,
+                anonymized_id=anonymized_id,
+                results=results
+            )
     except Exception as e:
         logger.error(f"Error processing VCF file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
