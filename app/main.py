@@ -20,6 +20,7 @@ from .config import get_config, AppConfig
 from .enhanced_vectorstore import get_vectorstore, initialize_vectorstore
 from .document_ingestion import get_ingestion_manager
 from .data_processor import DataProcessor
+from .vcf_processor import VCFProcessor
 
 # Load environment variables
 load_dotenv()
@@ -106,6 +107,7 @@ class DocumentIngestionRequest(BaseModel):
 _vectorstore = None
 _ingestion_manager = None
 _llm = None
+_vcf_processor = None
 
 def get_vectorstore_instance():
     """Get or initialize the vectorstore instance."""
@@ -152,8 +154,21 @@ def get_llm_instance():
                 _llm = None
                 logger.warning("LLM initialization failed, using simple fallback")
             else:
-                raise
+                raise e
     return _llm
+            
+def get_vcf_processor_instance():
+    """Get or initialize the VCF processor instance."""
+    global _vcf_processor
+    if _vcf_processor is None:
+        _vcf_processor = VCFProcessor()
+        logger.info("Initialized VCF processor")
+    return _vcf_processor
+                if config.llm.fallback_to_simple:
+                _llm = None
+                logger.warning("LLM initialization failed, using simple fallback")
+            else:
+                raise e  return _llm
 
 # Utility functions
 def is_variant_query(query: str) -> bool:
@@ -446,6 +461,63 @@ async def ingest_document(request: DocumentIngestionRequest):
     except Exception as e:
         logger.error(f"Error ingesting document: {e}")
         raise HTTPException(status_code=500, detail="Error ingesting document")
+
+# VCF Processing API Models
+class VCFProcessRequest(BaseModel):
+    """Request model for VCF processing."""
+    file_path: str = Field(..., description="Path to the VCF file to process")
+    patient_id: Optional[str] = Field(None, description="Patient ID (will be anonymized)")
+    analysis_type: str = Field("all", description="Type of analysis to perform (variant, dbsnp, prs, pathway, all)")
+
+class VCFProcessResponse(BaseModel):
+    """Response model for VCF processing."""
+    success: bool
+    anonymized_id: str
+    results: Dict[str, Any]
+    
+@app.post("/api/process_vcf", response_model=VCFProcessResponse)
+async def process_vcf(request: VCFProcessRequest):
+    """Process a VCF file and return analysis results."""
+    try:
+        vcf_processor = get_vcf_processor_instance()
+        
+        # Anonymize patient ID if provided
+        anonymized_id = vcf_processor.anonymize_patient_id(request.patient_id) if request.patient_id else "anonymous"
+        
+        # Process the VCF file based on requested analysis type
+        results = {}
+        
+        if request.analysis_type in ["variant", "all"]:
+            variants = vcf_processor.parse_vcf(request.file_path)
+            variant_types = vcf_processor.determine_variant_types(variants)
+            results["variants"] = {
+                "count": len(variants),
+                "types": variant_types
+            }
+            
+        if request.analysis_type in ["dbsnp", "all"]:
+            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            dbsnp_results = vcf_processor.query_dbsnp(variants)
+            results["dbsnp"] = dbsnp_results
+            
+        if request.analysis_type in ["prs", "all"]:
+            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            prs_score = vcf_processor.calculate_prs(variants)
+            results["prs"] = prs_score
+            
+        if request.analysis_type in ["pathway", "all"]:
+            variants = vcf_processor.parse_vcf(request.file_path) if "variants" not in results else variants
+            pathway_analysis = vcf_processor.analyze_pathways(variants)
+            results["pathways"] = pathway_analysis
+            
+        return VCFProcessResponse(
+            success=True,
+            anonymized_id=anonymized_id,
+            results=results
+        )
+    except Exception as e:
+        logger.error(f"Error processing VCF file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/knowledge/search")
 async def search_knowledge(query: str, 

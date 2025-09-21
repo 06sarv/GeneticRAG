@@ -1,6 +1,6 @@
 # GeneticRAG
 
-A modular Retrieval-Augmented Generation (RAG) system for answering genetic counseling questions using local processing and vector search.
+A modular Retrieval-Augmented Generation (RAG) system for answering genetic counseling questions using local processing and vector search, with integrated VCF file analysis capabilities.
 
 ## Features
 
@@ -12,6 +12,12 @@ A modular Retrieval-Augmented Generation (RAG) system for answering genetic coun
 - Comprehensive configuration with YAML and environment variables
 - RESTful API built with FastAPI
 - Document ingestion system for easy data source addition
+- VCF file processing with:
+  - Patient data anonymization
+  - Variant parsing and classification
+  - dbSNP database integration
+  - Polygenic risk score calculation
+  - Biological pathway analysis
 
 ## Project Structure
 
@@ -24,14 +30,21 @@ genetic_chatbot_backend/
 │   ├── data_processor.py      # csv and data processing
 │   ├── enhanced_vectorstore.py # vector database operations
 │   ├── document_ingestion.py  # document ingestion system
+│   ├── vcf_processor.py       # VCF file processing module
 │   └── vectorstore.py         # legacy vectorstore (deprecated)
 ├── data/                      # data directory
-│   └── raw/                   # raw csv files
+│   ├── raw/                   # raw csv files
+│   ├── test/                  # test data files
+│   │   └── sample.vcf         # sample VCF file for testing
+│   └── vcf/                   # directory for VCF file storage
+├── docs/                      # documentation
+│   └── vcf_processing.md      # VCF processing documentation
 ├── scripts/                   # utility scripts
 ├── tests/                     # test files
 ├── requirements.txt           # python dependencies
 ├── run_server.py             # server startup script
 ├── test_system.py            # system testing script
+├── test_vcf_processor.py     # VCF processor testing script
 ├── start.sh                  # quick start script
 └── README.md                 # this file
 ```
@@ -98,6 +111,45 @@ export SERVER_PORT=8000
 The system currently processes three CSV files:
 
 1. **GCCG.csv**: Genetic Counseling Common Glossary with terms and definitions
+
+## VCF Processing
+
+The system includes a comprehensive VCF (Variant Call Format) file processing module that enables genetic variant analysis:
+
+### VCF Features
+
+- **Patient Anonymization**: Securely anonymizes patient identifiers using one-way hashing
+- **Variant Parsing**: Parses VCF files using pysam for efficient processing
+- **Variant Classification**: Categorizes variants as SNPs, INDELs, or structural variants
+- **dbSNP Integration**: Matches variants with dbSNP database entries
+- **Polygenic Risk Score**: Calculates risk scores based on variant types and genomic regions
+- **Pathway Analysis**: Identifies affected biological pathways and genes
+
+### Using VCF Processing
+
+```python
+from app.vcf_processor import VCFProcessor
+
+# Initialize processor
+processor = VCFProcessor()
+
+# Process a VCF file
+vcf_path = "data/test/sample.vcf"
+variants = processor.parse_vcf(vcf_path)
+
+# Analyze variants
+variant_types = processor.determine_variant_types(variants)
+dbsnp_results = processor.query_dbsnp(variants)
+prs_results = processor.calculate_prs(variants)
+pathway_results = processor.analyze_pathways(variants)
+```
+
+### Testing VCF Processing
+
+Run the VCF processor test script:
+```bash
+python3 test_vcf_processor.py
+```
 2. **Genetic_bot_qb_with_genes_rerun_v3.csv**: Genetic counseling questions with gene information
 3. **genetic_counsellor_training_questions_with_official_sources.csv**: Training questions for genetic counselors
 
