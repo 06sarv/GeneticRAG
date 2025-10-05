@@ -8,7 +8,7 @@ A modular Retrieval-Augmented Generation (RAG) system for answering genetic coun
 - Local processing without external API dependencies
 - Support for multiple data sources (CSV, text, Markdown, JSON, YAML)
 - Advanced vector search using ChromaDB with sentence transformers
-- Flexible LLM integration with vLLM and transformers support
+- Flexible LLM integration with vLLM and transformers support, with enhanced stability for model loading and configuration.
 - Comprehensive configuration with YAML and environment variables
 - RESTful API built with FastAPI
 - Document ingestion system for easy data source addition
@@ -340,7 +340,7 @@ For issues and questions:
 
 <div align="center">
   <strong>Made with ❤️ by Sarvagna</strong>
-</div> 
+</div>
 
 
 
