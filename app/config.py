@@ -27,8 +27,9 @@ class LLMConfig:
     max_tokens: int = 512
     temperature: float = 0.7
     top_p: float = 0.9
-    use_vllm: bool = True
+    use_vllm: bool = False # Disabling vLLM to troubleshoot safetensors issue
     fallback_to_simple: bool = True
+    max_model_len: int = 1024 # Adjusted to match model's max_position_embeddings
 
 @dataclass
 class RAGConfig:

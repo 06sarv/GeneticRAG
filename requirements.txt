@@ -10,3 +10,5 @@ pandas
 pyyaml
 numpy
 scikit-learn
+torch
+bitsandbytes
