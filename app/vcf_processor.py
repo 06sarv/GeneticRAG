@@ -4,7 +4,11 @@ Handles Variant Call Format (VCF) files for genetic variant analysis while maint
 """
 
 import os
+import pysam
 import logging
+from typing import List, Dict, Any, Optional
+import subprocess
+
 import pandas as pd
 import hashlib
 import uuid
@@ -92,8 +96,9 @@ class VCFProcessor:
         if output_dir:
             annotated_vcf_path = Path(output_dir) / f"annotated_{Path(vcf_file_path).name}"
             try:
-                vcf_file_path = self.annotate_with_india_allele_finder(vcf_file_path, str(annotated_vcf_path))
-                logger.info(f"VCF file successfully annotated and saved to {vcf_file_path}")
+                vcf_file_path_after_annotation = self.annotate_with_india_allele_finder(vcf_file_path, str(annotated_vcf_path))
+                logger.info(f"VCF file successfully annotated and saved to {vcf_file_path_after_annotation}")
+                vcf_file_path = vcf_file_path_after_annotation # Update vcf_file_path to the annotated one
             except Exception as e:
                 logger.error(f"Failed to annotate VCF file with India Allele Finder: {e}")
                 # Continue with original VCF if annotation fails, or raise error
@@ -621,6 +626,9 @@ class VCFProcessor:
             raise FileNotFoundError(f"India Allele Annotator script not found at {self.INDIA_ALLELE_ANNOTATOR_SCRIPT}")
         if not self.IAF_FREQ_FILE.exists():
             raise FileNotFoundError(f"India Allele Frequencies file not found at {self.IAF_FREQ_FILE}")
+
+        # output_vcf_path = os.path.join(output_dir, f"annotated_{os.path.basename(vcf_file_path)}")
+        os.makedirs(os.path.dirname(output_vcf_path), exist_ok=True)
 
         command = [
             "python3",

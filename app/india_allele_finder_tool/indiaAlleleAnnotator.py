@@ -4,59 +4,65 @@ def buildAlleleDict(file):
 	returnDict = {}
 	for line in file:
 		l = line.split('\t')
-		print l
-		print len(l)
-		if len(l) is 8:
+		print(l)
+		print(len(l))
+		if len(l) == 8:
 			returnDict[':'.join(l[1:6])] = l[7].strip() 
 			print("returnDict key: " + ':'.join(l[1:6]))
 	return returnDict
 
-def annotate(filein, fileout, alleleDict): 
-	with open(filein, 'r') as input, open(fileout, 'w') as output:
-		firstline = input.readline()
-		header = firstline.split('\t')
-		insertIndex = len(header)-1
-		header.insert(insertIndex, 'indiaFreq')
+def annotate(filein, fileout, alleleDict):
+	with open(filein, 'r') as input_vcf, open(fileout, 'w') as output_vcf:
+		header_lines = []
+		variant_lines = []
+		for line in input_vcf:
+			if line.startswith('##'):
+				header_lines.append(line)
+			elif line.startswith('#CHROM'):
+				header_lines.append('##INFO=<ID=indiaFreq,Number=1,Type=String,Description="Allele Frequency from India Allele Finder">\n')
+				header_lines.append(line)
+			else:
+				variant_lines.append(line)
 
-		output.write('\t'.join(header))
+		for h_line in header_lines:
+			output_vcf.write(h_line)
 
-		for line in input:
-			l = line.split('\t')
+		for line in variant_lines:
+			l = line.strip().split('\t')
 			id = ':'.join(l[0:5])
+			info_field = l[7]
 			if id in alleleDict:
 				print("match: " + alleleDict[id])
-				l.insert(insertIndex, alleleDict[id])
+				info_field += f";indiaFreq={alleleDict[id].strip()}"
 			else:
 				print("no match for id: " + id + "... printing N/A")
-				l.insert(insertIndex, 'N/A')
-			output.write('\t'.join(l))
+				info_field += ";indiaFreq=N/A"
+			l[7] = info_field
+			output_vcf.write('\t'.join(l) + '\n')
 
 def main(argv):
 	global alleleDict
-	global firstline
 	input = '' #points to a vcf file
 	output = '' #output vcf file
-
-	#hard coded, but can be changed to accept a param
-	alleles = 'iafFreq.txt'
+	alleles_file = '' #allele frequency file
 
 	try:
-		opts, args = getopt.getopt(argv,'hi:o:', ['input=', 'output='])
+		opts, args = getopt.getopt(argv,'hi:o:f:', ['input=', 'output=', 'alleles='])
 	except getopt.GetoptError:
-		print 'indiaAlleleAnnotator.py -i <infile> -o <outfile>'
+		print('indiaAlleleAnnotator.py -i <infile> -o <outfile> -f <alleles_file>')
 		sys.exit(2)
 	for opt, arg in opts:
 		if opt == '-h':
-			print 'indiaAlleleAnnotator.py -i <infile> -o <outifle>'
+			print('indiaAlleleAnnotator.py -i <infile> -o <outfile> -f <alleles_file>')
 			sys.exit()
 		elif opt in ('-i', '--input'):
 			input = arg
 		elif opt in ('-o', '--output'):
 			output = arg
-	#print 'input file is ', infile
-	#print 'output file is ', outfile
+		elif opt in ('-f', '--alleles'):
+			alleles_file = arg
 	
-	alleleDict = buildAlleleDict(open(alleles, 'r'))
+	alleleDict = buildAlleleDict(open(alleles_file, 'r'))
 
 	annotate(input, output, alleleDict)
 

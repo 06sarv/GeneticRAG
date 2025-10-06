@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 from dotenv import load_dotenv
 import pandas as pd
+import subprocess
 
 # Import our modules
 from app.config import get_config, AppConfig
@@ -162,6 +163,7 @@ def get_llm_instance():
                     "text-generation",
                     model=config.llm.model_name,
                     trust_remote_code=False,
+                    use_safetensors=False,
                 )
                 logger.info(f"Initialized transformers pipeline with model: {config.llm.model_name}")
         except Exception as e:
@@ -484,6 +486,7 @@ class VCFProcessResponse(BaseModel):
 @app.post("/api/process_vcf", response_model=VCFProcessResponse)
 async def process_vcf(request: VCFProcessRequest):
     """Process a VCF file and return analysis results."""
+    variants = [] # Initialize variants to an empty list at the beginning
     try:
         vcf_processor = get_vcf_processor_instance()
         
@@ -492,9 +495,14 @@ async def process_vcf(request: VCFProcessRequest):
         
         # Process the VCF file based on requested analysis type
         results = {}
-        
+        variants = vcf_processor.parse_vcf(request.file_path, request.output_dir)
+
+        # The VCF is parsed once, no need for a redundant check here
+        # if request.analysis_type == "all" or \
+        #    request.analysis_type in ["variant", "dbsnp", "prs", "pathway", "novel_recurrent", "functional_prediction", "acmg_interpretation", "network_pharmacology"]:
+        #     variants = vcf_processor.parse_vcf(request.file_path, request.output_dir)
+
         if request.analysis_type in ["variant", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir)
             variant_types = vcf_processor.determine_variant_types(variants)
             results["variants"] = {
                 "count": len(variants),
@@ -502,59 +510,41 @@ async def process_vcf(request: VCFProcessRequest):
             }
             
         if request.analysis_type in ["dbsnp", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             dbsnp_results = vcf_processor.query_dbsnp(variants)
             results["dbsnp"] = dbsnp_results
             
         if request.analysis_type in ["prs", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             prs_score = vcf_processor.calculate_prs(variants)
             results["prs"] = prs_score
             
         if request.analysis_type in ["pathway", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             pathway_analysis = vcf_processor.analyze_pathways(variants)
             results["pathways"] = pathway_analysis
             
         if request.analysis_type in ["novel_recurrent", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
             novel_recurrent_variants = vcf_processor.identify_novel_recurrent_variants(variants)
-            results["novel_recurrent_variants"] = novel_recurrent_results
+            results["novel_recurrent_variants"] = novel_recurrent_variants
             
-        if analysis_type == "functional_prediction" or analysis_type == "all":
-            if not vcf_path:
-                vcf_path = await vcf_processor.parse_vcf(vcf_content, output_dir=request.output_dir)
-            # Assuming we want to predict functional impact for all variants in the VCF
-            # For a real application, you might want to filter variants first
-            variants_to_predict = vcf_processor.get_variants_from_vcf(vcf_path) # You'll need to implement this method in VCFProcessor
+        if request.analysis_type in ["functional_prediction", "all"]:
             functional_prediction_results = []
-            for variant in variants_to_predict:
+            for variant in variants:
                 prediction = vcf_processor.predict_functional_impact(variant)
                 functional_prediction_results.append({"variant": variant, "prediction": prediction})
             results["functional_prediction"] = functional_prediction_results
 
-        # Perform network pharmacology analysis
-        if analysis_type == "network_pharmacology" or analysis_type == "all":
-            if not variants:
-                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
-            
+        if request.analysis_type in ["network_pharmacology", "all"]:
             network_pharmacology_results = []
             for variant in variants:
                 network_pharmacology_results.append(vcf_processor.perform_network_pharmacology_analysis(variant))
-            response.network_pharmacology_results = network_pharmacology_results
+            results["network_pharmacology_results"] = network_pharmacology_results
 
-        # Perform ACMG interpretation
-        if analysis_type == "acmg_interpretation" or analysis_type == "all":
-            if not variants:
-                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
-            
+        if request.analysis_type in ["acmg_interpretation", "all"]:
             acmg_results = []
             for variant in variants:
-                # For ACMG, we need functional predictions and gnomAD allele frequencies
                 functional_predictions = vcf_processor.predict_functional_impact(variant)
                 gnomad_allele_frequency = vcf_processor.query_gnomad(variant)
                 acmg_results.append(vcf_processor.interpret_variant_acmg(variant, functional_predictions, gnomad_allele_frequency))
-            response.acmg_interpretation_results = acmg_results
+            results["acmg_interpretation_results"] = acmg_results
 
         if not results:
             return VCFProcessResponse(
@@ -593,46 +583,6 @@ async def search_knowledge(query: str,
     except Exception as e:
         logger.error(f"Error searching knowledge: {e}")
         raise HTTPException(status_code=500, detail="Error searching knowledge base")
-
-@app.post("/query_variant")
-async def query_variant(query: str):
-    if not genomic_router or not variant_summarizer:
-        raise HTTPException(status_code=503, detail="Services not initialized. Please try again in a moment.")
-
-    # 1. Classify the query
-    query_type = genomic_router.classify_query(query)
-
-    # 2. Fetch data based on query type
-    vep_data = pd.DataFrame()
-    myvariant_data = pd.DataFrame()
-
-    if query_type == QueryClassification.HGVS or query_type == QueryClassification.RSID:
-        # Assuming HGVS or RSID can be directly used by VEP and MyVariant
-        # vep_api = VEPAPI()
-        myvariant_api = MyVariantInfoAPI()
-
-        vep_response = query_vep(query)
-        myvariant_response = myvariant_api.get_variant_data(query)
-
-        vep_data = parse_vep_data(vep_response)
-        myvariant_data = parse_myvariant_record(myvariant_response)
-
-    elif query_type == QueryClassification.GENE_DISEASE:
-        # For Gene-Disease, we might need to query ClinGen first to get variants
-        # This is a simplified example, actual implementation might be more complex
-        clingen_api = ClinGenAPI()
-        clingen_response = clingen_api.search_gene_disease(query)
-        # Assuming clingen_response contains variant identifiers that can be used for VEP/MyVariant
-        # For now, we'll skip detailed ClinGen integration and focus on VEP/MyVariant for summarization
-        pass
-
-    # 3. Generate summary
-    if vep_data.empty and myvariant_data.empty:
-        raise HTTPException(status_code=404, detail="No variant data found for the given query.")
-
-    summary = variant_summarizer.generate_combined_summary(vep_data, myvariant_data)
-
-    return {"query_type": query_type.value, "summary": summary}
 
 @app.get("/config")
 async def get_configuration():
@@ -698,192 +648,6 @@ async def query_variant(query: str):
     summary = variant_summarizer.generate_combined_summary(vep_data, myvariant_data)
 
     return {"query_type": query_type.value, "summary": summary}
-
-    return {"query_type": query_type.value, "summary": summary}
-
-@app.post("/feedback")
-async def feedback_endpoint(feedback: FeedbackRequest):
-    """Collect user feedback on responses."""
-    if not config.enable_feedback:
-        raise HTTPException(status_code=404, detail="Feedback collection is disabled")
-    
-    try:
-        # Log feedback (in a real system, you'd store this in a database)
-        logger.info(f"Feedback received - Rating: {feedback.rating}, Comments: {feedback.comments}")
-        
-        # Here you could store feedback in a database or send to analytics
-        # For now, we'll just log it
-        
-        return {"status": "success", "message": "Feedback received"}
-        
-    except Exception as e:
-        logger.error(f"Error processing feedback: {e}")
-        raise HTTPException(status_code=500, detail="Error processing feedback")
-
-@app.get("/knowledge/stats")
-async def get_knowledge_stats():
-    """Get statistics about the knowledge base."""
-    try:
-        vectorstore = get_vectorstore_instance()
-        stats = vectorstore.get_collection_stats()
-        return stats
-    except Exception as e:
-        logger.error(f"Error getting knowledge stats: {e}")
-        raise HTTPException(status_code=500, detail="Error retrieving knowledge statistics")
-
-@app.post("/knowledge/ingest")
-async def ingest_document(request: DocumentIngestionRequest):
-    """Ingest a new document into the knowledge base."""
-    try:
-        ingestion_manager = get_ingestion_manager_instance()
-        
-        metadata = request.metadata or {}
-        if request.source:
-            metadata['source'] = request.source
-        if request.category:
-            metadata['category'] = request.category
-        
-        success = ingestion_manager.ingest_file(
-            file_path=request.file_path,
-            metadata=metadata
-        )
-        
-        if success:
-            return {"status": "success", "message": "Document ingested successfully"}
-        else:
-            raise HTTPException(status_code=400, detail="Failed to ingest document")
-            
-    except Exception as e:
-        logger.error(f"Error ingesting document: {e}")
-        raise HTTPException(status_code=500, detail="Error ingesting document")
-
-# VCF Processing API Models
-class VCFProcessRequest(BaseModel):
-    """Request model for VCF processing."""
-    file_path: str = Field(..., description="Path to the VCF file to process")
-    patient_id: Optional[str] = Field(None, description="Patient ID (will be anonymized)")
-    analysis_type: Literal["variant", "dbsnp", "prs", "pathway", "novel_recurrent", "functional_prediction", "acmg_interpretation", "network_pharmacology", "all"] = "all"
-    output_dir: Optional[str] = None
-
-
-class VCFProcessResponse(BaseModel):
-    """Response model for VCF processing."""
-    success: bool
-    anonymized_id: str
-    results: Dict[str, Any]
-    
-@app.post("/api/process_vcf", response_model=VCFProcessResponse)
-async def process_vcf(request: VCFProcessRequest):
-    """Process a VCF file and return analysis results."""
-    try:
-        vcf_processor = get_vcf_processor_instance()
-        
-        # Anonymize patient ID if provided
-        anonymized_id = vcf_processor.anonymize_patient_id(request.patient_id) if request.patient_id else "anonymous"
-        
-        # Process the VCF file based on requested analysis type
-        results = {}
-        
-        if request.analysis_type in ["variant", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir)
-            variant_types = vcf_processor.determine_variant_types(variants)
-            results["variants"] = {
-                "count": len(variants),
-                "types": variant_types
-            }
-            
-        if request.analysis_type in ["dbsnp", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
-            dbsnp_results = vcf_processor.query_dbsnp(variants)
-            results["dbsnp"] = dbsnp_results
-            
-        if request.analysis_type in ["prs", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
-            prs_score = vcf_processor.calculate_prs(variants)
-            results["prs"] = prs_score
-            
-        if request.analysis_type in ["pathway", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
-            pathway_analysis = vcf_processor.analyze_pathways(variants)
-            results["pathways"] = pathway_analysis
-            
-        if request.analysis_type in ["novel_recurrent", "all"]:
-            variants = vcf_processor.parse_vcf(request.file_path, request.output_dir) if "variants" not in results else variants
-            novel_recurrent_variants = vcf_processor.identify_novel_recurrent_variants(variants)
-            results["novel_recurrent_variants"] = novel_recurrent_results
-            
-        if analysis_type == "functional_prediction" or analysis_type == "all":
-            if not vcf_path:
-                vcf_path = await vcf_processor.parse_vcf(vcf_content, output_dir=request.output_dir)
-            # Assuming we want to predict functional impact for all variants in the VCF
-            # For a real application, you might want to filter variants first
-            variants_to_predict = vcf_processor.get_variants_from_vcf(vcf_path) # You'll need to implement this method in VCFProcessor
-            functional_prediction_results = []
-            for variant in variants_to_predict:
-                prediction = vcf_processor.predict_functional_impact(variant)
-                functional_prediction_results.append({"variant": variant, "prediction": prediction})
-            results["functional_prediction"] = functional_prediction_results
-
-        # Perform network pharmacology analysis
-        if analysis_type == "network_pharmacology" or analysis_type == "all":
-            if not variants:
-                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
-            
-            network_pharmacology_results = []
-            for variant in variants:
-                network_pharmacology_results.append(vcf_processor.perform_network_pharmacology_analysis(variant))
-            response.network_pharmacology_results = network_pharmacology_results
-
-        # Perform ACMG interpretation
-        if analysis_type == "acmg_interpretation" or analysis_type == "all":
-            if not variants:
-                variants = vcf_processor.get_variants_from_vcf(vcf_file_path)
-            
-            acmg_results = []
-            for variant in variants:
-                # For ACMG, we need functional predictions and gnomAD allele frequencies
-                functional_predictions = vcf_processor.predict_functional_impact(variant)
-                gnomad_allele_frequency = vcf_processor.query_gnomad(variant)
-                acmg_results.append(vcf_processor.interpret_variant_acmg(variant, functional_predictions, gnomad_allele_frequency))
-            response.acmg_interpretation_results = acmg_results
-
-        if not results:
-            return VCFProcessResponse(
-                success=True,
-                anonymized_id=anonymized_id,
-                results=results
-            )
-    except Exception as e:
-        logger.error(f"Error processing VCF file: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/knowledge/search")
-async def search_knowledge(query: str, 
-                          category: Optional[str] = None,
-                          source: Optional[str] = None,
-                          type: Optional[str] = None,
-                          limit: int = 10):
-    """Search the knowledge base directly."""
-    try:
-        vectorstore = get_vectorstore_instance()
-        
-        results = vectorstore.retrieve_similar_chunks(
-            query=query,
-            n_results=limit,
-            category_filter=category,
-            source_filter=source,
-            type_filter=type
-        )
-        
-        return {
-            "query": query,
-            "results": results,
-            "total": len(results)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error searching knowledge: {e}")
-        raise HTTPException(status_code=500, detail="Error searching knowledge base")
 
 @app.get("/config")
 async def get_configuration():
